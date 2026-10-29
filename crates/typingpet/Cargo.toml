@@ -9,6 +9,8 @@ license.workspace = true
 typingpet-core = { path = "../typingpet-core" }
 typingpet-input = { path = "../typingpet-input" }
 anyhow = { workspace = true }
+# GdkPixbuf 不支持 APNG；使用 image 解出帧后交给 GDK 纹理显示。
+image = { version = "0.25", default-features = false, features = ["png"] }
 # v4_12 提供 Picture::set_content_fit / CssProvider::load_from_string（Fedora 44 的 GTK 为 4.22）
 gtk4 = { version = "0.11", optional = true, features = ["v4_12"] }
 gtk4-layer-shell = { version = "0.8", optional = true }

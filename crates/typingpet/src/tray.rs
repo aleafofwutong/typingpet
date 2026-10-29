@@ -86,9 +86,11 @@ impl ksni::Tray for PetTray {
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         use ksni::menu::{CheckmarkItem, MenuItem, StandardItem, SubMenu};
 
-        let state = self.shared.lock().map(|state| state.clone()).unwrap_or_else(|_| {
-            TrayState::new("unknown".to_string(), "unknown".to_string())
-        });
+        let state = self
+            .shared
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_else(|_| TrayState::new("unknown".to_string(), "unknown".to_string()));
 
         let visibility_label = if state.pet_visible {
             "隐藏宠物"
@@ -165,7 +167,10 @@ impl ksni::Tray for PetTray {
             }
             .into(),
             StandardItem {
-                label: format!("反应图片: {} 张 · 图片集: {}", state.reaction_count, state.set_count),
+                label: format!(
+                    "反应图片: {} 张 · 图片集: {}",
+                    state.reaction_count, state.set_count
+                ),
                 enabled: false,
                 ..Default::default()
             }

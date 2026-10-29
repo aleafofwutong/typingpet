@@ -12,12 +12,16 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
 ];
 
 pub const BUILT_IN_SET_ID: &str = "00000000-0000-0000-0000-000000000001";
-pub const DEFAULT_IDLE_NAME: &str = "pet-idle.png";
+pub const DEFAULT_IDLE_NAME: &str = "pet-idle.apng";
+pub const DEFAULT_TYPING_NAME: &str = "pet-typing.apng";
+pub const DEFAULT_SURPRISE_NAME: &str = "pet-surprise.gif";
 pub const DEFAULT_REACTION_NAMES: &[&str] = &[
-    "pet-left.png",
-    "pet-right.png",
-    "pet-question.png",
-    "pet-exclamation.png",
+    "pet-reaction-1.gif",
+    "pet-reaction-2.gif",
+    "pet-reaction-3.gif",
+    "pet-reaction-4.gif",
+    "pet-reaction-5.gif",
+    "pet-reaction-6.gif",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -237,6 +241,20 @@ impl ImageLibrary {
         self.reaction_urls_for(&self.active_set())
     }
 
+    /// BuiltIn 专用的普通输入动画。自定义图库继续沿用原来的随机反应逻辑。
+    pub fn typing_url(&self) -> Option<PathBuf> {
+        (self.active_set_id == BUILT_IN_SET_ID)
+            .then(|| self.resources_directory.join(DEFAULT_TYPING_NAME))
+            .filter(|path| path.is_file())
+    }
+
+    /// BuiltIn 专用的待机彩蛋动画。
+    pub fn surprise_url(&self) -> Option<PathBuf> {
+        (self.active_set_id == BUILT_IN_SET_ID)
+            .then(|| self.resources_directory.join(DEFAULT_SURPRISE_NAME))
+            .filter(|path| path.is_file())
+    }
+
     pub fn idle_url_for(&self, set: &PetImageSet) -> Option<PathBuf> {
         self.resolved_url(&set.idle_file_name, set)
     }
@@ -257,7 +275,11 @@ impl ImageLibrary {
         Ok(())
     }
 
-    pub fn add_set(&mut self, folder: &Path, name: Option<&str>) -> Result<PetImageSet, ImageLibraryError> {
+    pub fn add_set(
+        &mut self,
+        folder: &Path,
+        name: Option<&str>,
+    ) -> Result<PetImageSet, ImageLibraryError> {
         let mut contents = Vec::new();
         for entry in fs::read_dir(folder)? {
             let entry = entry?;
@@ -274,7 +296,10 @@ impl ImageLibrary {
             return Err(ImageLibraryError::NoImagesInFolder);
         }
 
-        let idle_source = selection.idle_url.clone().unwrap_or_else(|| all_images[0].clone());
+        let idle_source = selection
+            .idle_url
+            .clone()
+            .unwrap_or_else(|| all_images[0].clone());
         let mut reaction_sources: Vec<PathBuf> = selection
             .reaction_urls
             .iter()
@@ -321,7 +346,10 @@ impl ImageLibrary {
         Ok(set)
     }
 
-    pub fn import_folder(&mut self, folder: &Path) -> Result<FolderImportResult, ImageLibraryError> {
+    pub fn import_folder(
+        &mut self,
+        folder: &Path,
+    ) -> Result<FolderImportResult, ImageLibraryError> {
         let set = self.add_set(folder, None)?;
         Ok(FolderImportResult {
             changed_idle: true,
@@ -396,19 +424,28 @@ impl ImageLibrary {
 
     fn persist_gallery(&self) -> Result<(), ImageLibraryError> {
         fs::create_dir_all(&self.images_directory)?;
-        let text = serde_json::to_string_pretty(&self.custom_sets)
-            .map_err(|error| ImageLibraryError::Io(std::io::Error::new(std::io::ErrorKind::Other, error)))?;
+        let text = serde_json::to_string_pretty(&self.custom_sets).map_err(|error| {
+            ImageLibraryError::Io(std::io::Error::new(std::io::ErrorKind::Other, error))
+        })?;
         fs::write(&self.gallery_path, text)?;
         Ok(())
     }
 
     fn persist_active(&self) {
         fs::create_dir_all(&self.images_directory).ok();
-        fs::write(self.images_directory.join("active-set.txt"), &self.active_set_id).ok();
+        fs::write(
+            self.images_directory.join("active-set.txt"),
+            &self.active_set_id,
+        )
+        .ok();
     }
 
     fn repair_active_selection(&mut self) {
-        if !self.image_sets().iter().any(|set| set.id == self.active_set_id) {
+        if !self
+            .image_sets()
+            .iter()
+            .any(|set| set.id == self.active_set_id)
+        {
             self.active_set_id = BUILT_IN_SET_ID.to_string();
         }
     }
@@ -525,7 +562,11 @@ mod tests {
         assert!(idle_path.is_file());
         // 兜底选的待机图应是排序第一张（a.png），反应图只有 b.png
         assert_eq!(
-            idle_path.file_name().unwrap().to_string_lossy().contains("a"),
+            idle_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains("a"),
             true
         );
 

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=TypingPet
+Name[zh_CN]=TypingPet 桌面宠物
+Comment=A desktop pet that reacts to your typing
+Comment[zh_CN]=会响应键盘输入的桌面宠物
+Exec=/home/aleafofwutong/.local/bin/typingpet
+TryExec=/home/aleafofwutong/.local/bin/typingpet
+Icon=typingpet
+Terminal=false
+Categories=Utility;
+Keywords=typing;pet;keyboard;
+StartupNotify=false

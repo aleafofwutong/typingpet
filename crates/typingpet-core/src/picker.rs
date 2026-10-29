@@ -42,7 +42,11 @@ impl SystemRng {
 
     pub fn from_seed(seed: u64) -> Self {
         Self {
-            state: if seed == 0 { 0x2545_F491_4F6C_DD1D } else { seed },
+            state: if seed == 0 {
+                0x2545_F491_4F6C_DD1D
+            } else {
+                seed
+            },
         }
     }
 }
@@ -135,11 +139,7 @@ mod tests {
 
     #[test]
     fn picker_never_returns_current_when_alternatives_exist() {
-        let picker = ImagePicker::new(vec![
-            "a".to_string(),
-            "b".to_string(),
-            "c".to_string(),
-        ]);
+        let picker = ImagePicker::new(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
         let mut rng = SystemRng::from_seed(42);
         for _ in 0..200 {
             let picked = picker.next_excluding(Some("b"), &mut rng).expect("picked");

@@ -89,7 +89,9 @@ impl SettingsView {
         pet_section.append(&scale_row);
         pet_section.append(&resting_row);
         pet_section.append(&hover_row);
-        pet_section.append(&note("100% 为完全不透明，0% 为完全透明；悬停时使用第二个值。"));
+        pet_section.append(&note(
+            "100% 为完全不透明，0% 为完全透明；悬停时使用第二个值。",
+        ));
         pet_section.append(&shake_row);
 
         let window_section = section("窗口");
@@ -358,11 +360,13 @@ impl SettingsView {
         }
         {
             let view = self.clone();
-            self.rename_button.connect_clicked(move |_| view.rename_selected_set());
+            self.rename_button
+                .connect_clicked(move |_| view.rename_selected_set());
         }
         {
             let view = self.clone();
-            self.delete_button.connect_clicked(move |_| view.delete_selected_set());
+            self.delete_button
+                .connect_clicked(move |_| view.delete_selected_set());
         }
 
         // 键反应
@@ -379,19 +383,21 @@ impl SettingsView {
         let settings = self.ui.settings();
 
         self.scale.set_value(settings.scale);
-        self.scale_value.set_text(&format!("{:.0}%", settings.scale * 100.0));
+        self.scale_value
+            .set_text(&format!("{:.0}%", settings.scale * 100.0));
         self.resting.set_value(settings.resting_opacity);
         self.resting_value
             .set_text(&format!("{:.0}%", settings.resting_opacity * 100.0));
         self.hover.set_value(settings.hover_opacity);
         self.hover_value
             .set_text(&format!("{:.0}%", settings.hover_opacity * 100.0));
-        self.shake.set_selected(u32::from(settings.shake_level.min(3)));
+        self.shake
+            .set_selected(u32::from(settings.shake_level.min(3)));
         self.always_on_top.set_active(settings.always_on_top);
         self.position_locked.set_active(settings.position_locked);
-        self.avoid_pointer.set_active(settings.avoids_pointer_when_locked);
         self.avoid_pointer
-            .set_sensitive(settings.position_locked);
+            .set_active(settings.avoids_pointer_when_locked);
+        self.avoid_pointer.set_sensitive(settings.position_locked);
         self.autostart.set_active(self.ui.is_autostart_enabled());
 
         self.system_status.set_text(&format!(
@@ -445,7 +451,8 @@ impl SettingsView {
             }
         }
 
-        self.gallery_summary.set_text(&format!("共 {} 个图片集", sets.len()));
+        self.gallery_summary
+            .set_text(&format!("共 {} 个图片集", sets.len()));
         self.update_gallery_buttons();
     }
 
@@ -477,7 +484,11 @@ impl SettingsView {
         let detail = gtk::Label::new(Some(&format!(
             "反应图片 {} 张{}",
             self.ui.reaction_count_for(set),
-            if set.is_built_in { "　·　内置" } else { "" }
+            if set.is_built_in {
+                "　·　内置"
+            } else {
+                ""
+            }
         )));
         detail.set_xalign(0.0);
         detail.add_css_class("dim-label");
@@ -506,8 +517,10 @@ impl SettingsView {
 
         self.apply_button
             .set_sensitive(has_selection && selected.as_deref() != Some(active.as_str()));
-        self.rename_button.set_sensitive(has_selection && !is_built_in);
-        self.delete_button.set_sensitive(has_selection && !is_built_in);
+        self.rename_button
+            .set_sensitive(has_selection && !is_built_in);
+        self.delete_button
+            .set_sensitive(has_selection && !is_built_in);
     }
 
     fn import_folder_dialog(self: &Rc<Self>) {

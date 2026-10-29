@@ -130,13 +130,22 @@ impl PetPointerAvoidance {
 
     /// 点到矩形的最短距离（矩形内部为 0）。
     pub fn distance(point: Point, rect: Rect) -> f64 {
-        let horizontal = (rect.min_x() - point.x).max(0.0).max(point.x - rect.max_x());
-        let vertical = (rect.min_y() - point.y).max(0.0).max(point.y - rect.max_y());
+        let horizontal = (rect.min_x() - point.x)
+            .max(0.0)
+            .max(point.x - rect.max_x());
+        let vertical = (rect.min_y() - point.y)
+            .max(0.0)
+            .max(point.y - rect.max_y());
         hypot(horizontal, vertical)
     }
 
     pub fn target_origin(mouse_location: Point, pet_frame: Rect, bounds: Rect) -> Option<Point> {
-        Self::target_origin_with(mouse_location, pet_frame, bounds, Self::DEFAULT_TRIGGER_DISTANCE)
+        Self::target_origin_with(
+            mouse_location,
+            pet_frame,
+            bounds,
+            Self::DEFAULT_TRIGGER_DISTANCE,
+        )
     }
 
     /// 返回新的窗口左上角（左下原点坐标系）；光标较远时返回 `None`。
@@ -317,7 +326,10 @@ impl PetMotionPhysics {
         edge_restitution: f64,
     ) -> PetMotionStep {
         let delta = elapsed.max(0.0);
-        let mut next_origin = Point::new(origin.x + velocity.dx * delta, origin.y + velocity.dy * delta);
+        let mut next_origin = Point::new(
+            origin.x + velocity.dx * delta,
+            origin.y + velocity.dy * delta,
+        );
         let decay = velocity_retention_per_second.powf(delta);
         let mut next_velocity = Vec2::new(velocity.dx * decay, velocity.dy * decay);
 
@@ -421,8 +433,9 @@ mod tests {
     fn pointer_avoidance_moves_away_from_nearby_pointer() {
         let frame = Rect::new(100.0, 100.0, 100.0, 100.0);
         let mouse = Point::new(80.0, 150.0);
-        let target = PetPointerAvoidance::target_origin(mouse, frame, Rect::new(0.0, 0.0, 500.0, 500.0))
-            .expect("target");
+        let target =
+            PetPointerAvoidance::target_origin(mouse, frame, Rect::new(0.0, 0.0, 500.0, 500.0))
+                .expect("target");
 
         assert!(target.x > frame.x);
         assert!(
@@ -459,8 +472,8 @@ mod tests {
     fn pointer_avoidance_chooses_an_available_direction_at_screen_edge() {
         let bounds = Rect::new(0.0, 0.0, 500.0, 500.0);
         let frame = Rect::new(0.0, 180.0, 100.0, 100.0);
-        let target =
-            PetPointerAvoidance::target_origin(Point::new(60.0, 230.0), frame, bounds).expect("target");
+        let target = PetPointerAvoidance::target_origin(Point::new(60.0, 230.0), frame, bounds)
+            .expect("target");
 
         assert_ne!(target, frame.origin());
         assert!(target.x >= bounds.min_x());
@@ -471,14 +484,8 @@ mod tests {
 
     #[test]
     fn opacity_selects_resting_and_hover_values_immediately() {
-        assert_close(
-            PetOpacityBehavior::opacity(false, 1.0, 0.3),
-            1.0,
-        );
-        assert_close(
-            PetOpacityBehavior::opacity(true, 1.0, 0.3),
-            0.3,
-        );
+        assert_close(PetOpacityBehavior::opacity(false, 1.0, 0.3), 1.0);
+        assert_close(PetOpacityBehavior::opacity(true, 1.0, 0.3), 0.3);
     }
 
     #[test]
@@ -535,11 +542,7 @@ mod tests {
 
     #[test]
     fn horizontal_resize_uses_width_and_preserves_scale_relationship() {
-        let scale = PetResizeGeometry::scale(
-            0.5,
-            Size::new(200.0, 100.0),
-            Point::new(100.0, 0.0),
-        );
+        let scale = PetResizeGeometry::scale(0.5, Size::new(200.0, 100.0), Point::new(100.0, 0.0));
         assert_close(scale, 0.75);
     }
 

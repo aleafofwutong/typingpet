@@ -1497,6 +1497,7 @@ dependencies = [
  "gdk4-x11",
  "gtk4",
  "gtk4-layer-shell",
+ "image",
  "ksni",
  "typingpet-core",
  "typingpet-input",

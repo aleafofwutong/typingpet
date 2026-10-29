@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+typingpet_env=/home/aleafofwutong/.local/share/typingpet-runtime
+typingpet_bin=/home/aleafofwutong/.local/lib/typingpet/typingpet-bin
+
+export LD_LIBRARY_PATH="$typingpet_env/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export GDK_PIXBUF_MODULE_FILE="$typingpet_env/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+export XDG_DATA_DIRS="$typingpet_env/share${XDG_DATA_DIRS:+:$XDG_DATA_DIRS}"
+
+exec "$typingpet_bin" "$@"

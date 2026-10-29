@@ -1,41 +1,57 @@
 //! 内置图片素材：直接嵌入二进制，首次运行时释放到数据目录。
 //!
-//! 素材来源与授权见仓库根目录 `ASSET_LICENSE.md`（CC0 1.0）。
+//! 内置素材随二进制发布，启动时释放到用户数据目录。
 
 use std::fs;
 use std::path::Path;
 
 pub const BUILT_IN_ASSETS: &[(&str, &[u8])] = &[
     (
-        "pet-idle.png",
-        include_bytes!("../resources/pet-idle.png"),
+        "pet-idle.apng",
+        include_bytes!("../resources/pet-idle.apng"),
     ),
     (
-        "pet-left.png",
-        include_bytes!("../resources/pet-left.png"),
+        "pet-typing.apng",
+        include_bytes!("../resources/pet-typing.apng"),
     ),
     (
-        "pet-right.png",
-        include_bytes!("../resources/pet-right.png"),
+        "pet-surprise.gif",
+        include_bytes!("../resources/pet-surprise.gif"),
     ),
     (
-        "pet-question.png",
-        include_bytes!("../resources/pet-question.png"),
+        "pet-reaction-1.gif",
+        include_bytes!("../resources/pet-reaction-1.gif"),
     ),
     (
-        "pet-exclamation.png",
-        include_bytes!("../resources/pet-exclamation.png"),
+        "pet-reaction-2.gif",
+        include_bytes!("../resources/pet-reaction-2.gif"),
+    ),
+    (
+        "pet-reaction-3.gif",
+        include_bytes!("../resources/pet-reaction-3.gif"),
+    ),
+    (
+        "pet-reaction-4.gif",
+        include_bytes!("../resources/pet-reaction-4.gif"),
+    ),
+    (
+        "pet-reaction-5.gif",
+        include_bytes!("../resources/pet-reaction-5.gif"),
+    ),
+    (
+        "pet-reaction-6.gif",
+        include_bytes!("../resources/pet-reaction-6.gif"),
     ),
 ];
 
-/// 把内置素材释放到 `directory`（已存在则跳过）。
+/// 把当前二进制中的内置素材释放到 `directory`。
+///
+/// BuiltIn 由程序自身管理，每次启动覆盖，避免升级后继续使用旧版本素材。
 pub fn ensure_builtin_assets(directory: &Path) -> std::io::Result<()> {
     fs::create_dir_all(directory)?;
     for (name, bytes) in BUILT_IN_ASSETS {
         let path = directory.join(name);
-        if !path.is_file() {
-            fs::write(&path, bytes)?;
-        }
+        fs::write(&path, bytes)?;
     }
     Ok(())
 }

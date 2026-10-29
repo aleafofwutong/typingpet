@@ -11,12 +11,15 @@ use anyhow::Result;
 use gtk::prelude::*;
 use gtk4 as gtk;
 use gtk4_layer_shell::LayerShell;
+use image::AnimationDecoder;
 use std::cell::RefCell;
+use std::fs::File;
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use typingpet_core::config::Settings;
 use typingpet_core::geom::{self, Point, Rect, Size};
 use typingpet_core::keys::{KeyReactionRule, KeyStroke};
@@ -151,15 +154,15 @@ pub fn physical_to_logical(pointer: Point, scale: f64) -> Point {
 }
 
 /// 输入区域策略（纯函数，便于单测）。返回相对窗口左上角的矩形列表，空表示完全穿透。
-pub fn input_region_rects(
-    locked: bool,
-    avoid_pointer: bool,
-    window: Size,
-    ring: f64,
-) -> Vec<Rect> {
+pub fn input_region_rects(locked: bool, avoid_pointer: bool, window: Size, ring: f64) -> Vec<Rect> {
     if !locked {
         // 可交互：只有宠物本体接收事件，透明环不吃点击
-        return vec![Rect::new(ring, ring, window.w - ring * 2.0, window.h - ring * 2.0)];
+        return vec![Rect::new(
+            ring,
+            ring,
+            window.w - ring * 2.0,
+            window.h - ring * 2.0,
+        )];
     }
     if avoid_pointer {
         // 锁定 + 躲避：整个窗口（含环）接收事件，用于 Wayland 局部检测
@@ -259,7 +262,15 @@ impl PetUi {
         tray: SharedTray,
         quit: Arc<AtomicBool>,
     ) -> Rc<Self> {
-        let (settings, idle_url, base_size, no_layer_shell, layer, position_override, reset_position) = {
+        let (
+            settings,
+            idle_url,
+            base_size,
+            no_layer_shell,
+            layer,
+            position_override,
+            reset_position,
+        ) = {
             let runtime = runtime.borrow();
             let base_size = runtime
                 .library
@@ -306,8 +317,13 @@ impl PetUi {
             image_size.w + AVOID_RING * 2.0,
             image_size.h + AVOID_RING * 2.0,
         );
-        let position =
-            resolve_position(&settings, start_size, position_override, reset_position, monitor);
+        let position = resolve_position(
+            &settings,
+            start_size,
+            position_override,
+            reset_position,
+            monitor,
+        );
         println!(
             "position: ({:.0},{:.0}) monitor={}x{} scale={:.2} layer={} click_through={}",
             position.x,
@@ -388,10 +404,11 @@ impl PetUi {
         }
         println!("提示：滚轮=缩放，拖拽=移动，托盘/设置窗口=全部功能");
         if !layer_shell {
-            println!(
-                "提示：当前未启用 layer-shell（会话={}），窗口不会置顶",
-                typingpet_input::session_kind()
-            );
+            if typingpet_input::session_kind() == "x11" {
+                println!("提示：当前为 X11，会使用 EWMH 请求窗口管理器保持置顶");
+            } else {
+                println!("提示：当前未启用 layer-shell，窗口管理器可能不支持置顶");
+            }
         }
         if !wayland_display() && typingpet_input::session_kind() == "wayland" {
             println!(
@@ -401,6 +418,12 @@ impl PetUi {
             );
         }
         window.present();
+        {
+            let window = window.clone();
+            let enabled = state.borrow().settings.always_on_top;
+            // X11 的 EWMH 请求必须在窗口映射后发送；Wayland 分支重复设置无害。
+            gtk::glib::idle_add_local_once(move || apply_always_on_top(&window, enabled));
+        }
 
         // 恢复自检：启动 1 秒后打印窗口状态（含 X11 下的真实位置），
         // 以及 --dump-png 的离屏渲染。这两项在早先的一次重写里被误删过。
@@ -437,8 +460,7 @@ impl PetUi {
                     window.opacity(),
                 );
                 if let Some(window_id) = x11_window_id(&window) {
-                    if let Some((gx, gy, gw, gh)) =
-                        typingpet_input::x11::window_geometry(window_id)
+                    if let Some((gx, gy, gw, gh)) = typingpet_input::x11::window_geometry(window_id)
                     {
                         eprintln!(
                             "diag(x11): id=0x{window_id:x} 实际位置=({gx},{gy}) 尺寸={gw}x{gh}"
@@ -461,9 +483,7 @@ impl PetUi {
     /// 显示一张图（待机图/反应图），自动处理动图。
     fn show_image(&self, path: &Path) {
         let size = self.state.borrow().image_size();
-        self.animation
-            .borrow_mut()
-            .show(&self.picture, path, size);
+        self.animation.borrow_mut().show(&self.picture, path, size);
     }
 
     // ---------- 对外状态 ----------
@@ -550,8 +570,10 @@ impl PetUi {
             let state = self.state.borrow();
             (state.window_size(), state.image_size())
         };
-        self.window.set_default_size(window_size.w as i32, window_size.h as i32);
-        self.fixed.set_size_request(window_size.w as i32, window_size.h as i32);
+        self.window
+            .set_default_size(window_size.w as i32, window_size.h as i32);
+        self.fixed
+            .set_size_request(window_size.w as i32, window_size.h as i32);
         let current = self.state.borrow().current.clone();
         if let Some(path) = current {
             self.animation
@@ -578,26 +600,24 @@ impl PetUi {
             probe.shake_amplitude()
         };
         self.update_settings(|settings| settings.shake_level = level.min(3));
-        let (idle, reactions) = {
+        let (idle, typing, reactions, surprise) = {
             let runtime = self.runtime.borrow();
-            (runtime.library.idle_url(), runtime.library.reaction_urls())
+            (
+                runtime.library.idle_url(),
+                runtime.library.typing_url(),
+                runtime.library.reaction_urls(),
+                runtime.library.surprise_url(),
+            )
         };
         self.runtime
             .borrow_mut()
             .state
-            .update_sources(idle, reactions, amplitude);
+            .update_sources(idle, typing, reactions, surprise, amplitude);
     }
 
     pub fn set_always_on_top(&self, enabled: bool) {
         self.update_settings(|settings| settings.always_on_top = enabled);
-        if layer_shell_supported() {
-            let layer = if enabled {
-                gtk4_layer_shell::Layer::Top
-            } else {
-                gtk4_layer_shell::Layer::Bottom
-            };
-            self.window.set_layer(layer);
-        }
+        apply_always_on_top(&self.window, enabled);
     }
 
     pub fn set_position_locked(&self, locked: bool) {
@@ -654,16 +674,18 @@ impl PetUi {
 
     /// 图片集/规则变化后重新加载待机图与反应图。
     pub fn reload_images(&self) {
-        let (idle, reactions, base_size) = {
+        let (idle, typing, reactions, surprise, base_size) = {
             let runtime = self.runtime.borrow();
             let idle = runtime.library.idle_url();
+            let typing = runtime.library.typing_url();
             let reactions = runtime.library.reaction_urls();
+            let surprise = runtime.library.surprise_url();
             let base_size = idle
                 .as_ref()
                 .and_then(|path| typingpet_core::image_dimensions(path))
                 .map(|size| geom::normalized_base_size(size, 453.0))
                 .unwrap_or_else(|| Size::new(453.0, 354.0));
-            (idle, reactions, base_size)
+            (idle, typing, reactions, surprise, base_size)
         };
 
         let shake = self.state.borrow().settings.shake_amplitude();
@@ -671,7 +693,7 @@ impl PetUi {
             let mut runtime = self.runtime.borrow_mut();
             runtime
                 .state
-                .update_sources(idle.clone(), reactions, shake);
+                .update_sources(idle.clone(), typing, reactions, surprise, shake);
         }
         let window_size = {
             let mut state = self.state.borrow_mut();
@@ -680,8 +702,10 @@ impl PetUi {
             state.bounce = None;
             state.window_size()
         };
-        self.window.set_default_size(window_size.w as i32, window_size.h as i32);
-        self.fixed.set_size_request(window_size.w as i32, window_size.h as i32);
+        self.window
+            .set_default_size(window_size.w as i32, window_size.h as i32);
+        self.fixed
+            .set_size_request(window_size.w as i32, window_size.h as i32);
         if let Some(path) = &idle {
             self.show_image(path);
         }
@@ -1078,10 +1102,7 @@ impl PetUi {
             (state.avoid_velocity, state.avoid_settled)
         };
         let delta = match target {
-            Some(target) => (
-                target.x - position.x,
-                target.y - position.y,
-            ),
+            Some(target) => (target.x - position.x, target.y - position.y),
             None => (0.0, 0.0),
         };
         velocity.dx += (delta.0 * AVOID_STIFFNESS - velocity.dx * AVOID_DAMPING) * elapsed;
@@ -1185,7 +1206,7 @@ impl PetUi {
             let actions = {
                 let mut runtime = ui.runtime.borrow_mut();
                 let now = runtime.now();
-                runtime.state.tick(now)
+                runtime.state.tick(now, &mut rng)
             };
             ui.apply_actions(actions);
 
@@ -1336,10 +1357,14 @@ fn render_to_png(window: &gtk::Window, widget: &gtk::Fixed, path: &Path) -> Resu
 
 /// 目标显示尺寸（像素）。
 fn target_pixels(size: Size) -> (i32, i32) {
-    (size.w.round().max(1.0) as i32, size.h.round().max(1.0) as i32)
+    (
+        size.w.round().max(1.0) as i32,
+        size.h.round().max(1.0) as i32,
+    )
 }
 
 /// 是不是需要逐帧播放的动图（GIF / 动态 WebP / APNG：取决于系统装的 gdk-pixbuf loader）。
+#[cfg(test)]
 fn is_animated(path: &Path) -> bool {
     use gtk::gdk_pixbuf::prelude::*;
     gtk::gdk_pixbuf::PixbufAnimation::from_file(path)
@@ -1364,16 +1389,48 @@ fn render_static(picture: &gtk::Picture, path: &Path, size: Size) {
     }
 }
 
-/// 图片显示：自动区分动图与静图。
-///
-/// - **动图**：交给 `GtkMediaFile` —— 它就是 GTK 内置的图像动画后端（不需要 GStreamer），
-///   本身实现了 `GdkPaintable`，GTK 按帧时钟自己推进，我们不必手写逐帧定时器。
-/// - **静图**：仍走预缩放 pixbuf。
-///
-/// 动图播放失败（缺 loader 等）时通过 `notify::error` 回退成静图，避免宠物整个消失。
+struct ApngFrame {
+    texture: gtk::gdk::MemoryTexture,
+    delay: Duration,
+}
+
+fn decode_apng(path: &Path) -> Result<Vec<ApngFrame>> {
+    let decoder = image::codecs::png::PngDecoder::new(BufReader::new(File::open(path)?))?;
+    if !decoder.is_apng()? {
+        anyhow::bail!("not an animated PNG");
+    }
+    let frames = decoder.apng()?.into_frames().collect_frames()?;
+    let mut decoded = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let (numerator, denominator) = frame.delay().numer_denom_ms();
+        let delay_ms = (f64::from(numerator) / f64::from(denominator.max(1)))
+            .round()
+            .max(10.0) as u64;
+        let buffer = frame.into_buffer();
+        let (width, height) = buffer.dimensions();
+        let bytes = gtk::glib::Bytes::from_owned(buffer.into_raw());
+        let texture = gtk::gdk::MemoryTexture::new(
+            width as i32,
+            height as i32,
+            gtk::gdk::MemoryFormat::R8g8b8a8,
+            &bytes,
+            width as usize * 4,
+        );
+        decoded.push(ApngFrame {
+            texture,
+            delay: Duration::from_millis(delay_ms),
+        });
+    }
+    if decoded.is_empty() {
+        anyhow::bail!("APNG contains no animation frames");
+    }
+    Ok(decoded)
+}
+
+/// 图片显示：APNG 由 image 解码，GIF 由 GdkPixbufAnimation 推进，静图走预缩放 pixbuf。
 #[derive(Default)]
 struct AnimationPlayer {
-    current: Option<gtk::MediaFile>,
+    timer: Option<gtk::glib::SourceId>,
 }
 
 impl AnimationPlayer {
@@ -1382,41 +1439,77 @@ impl AnimationPlayer {
         let (width, height) = target_pixels(size);
         picture.set_size_request(width, height);
 
-        if !is_animated(path) {
+        let is_apng = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .map(|extension| extension.eq_ignore_ascii_case("apng"))
+            .unwrap_or(false);
+        if is_apng {
+            match decode_apng(path) {
+                Ok(frames) => {
+                    picture.set_paintable(Some(&frames[0].texture));
+                    let picture = picture.clone();
+                    let mut index = 0usize;
+                    let mut shown_at = Instant::now();
+                    self.timer = Some(gtk::glib::timeout_add_local(
+                        Duration::from_millis(FRAME_INTERVAL_MS),
+                        move || {
+                            if shown_at.elapsed() >= frames[index].delay {
+                                index = (index + 1) % frames.len();
+                                shown_at = Instant::now();
+                                picture.set_paintable(Some(&frames[index].texture));
+                            }
+                            gtk::glib::ControlFlow::Continue
+                        },
+                    ));
+                }
+                Err(error) => eprintln!("APNG load failed ({}): {error:#}", path.display()),
+            }
+            return;
+        }
+
+        use gtk::gdk_pixbuf::prelude::*;
+
+        let Ok(animation) = gtk::gdk_pixbuf::PixbufAnimation::from_file(path) else {
+            render_static(picture, path, size);
+            return;
+        };
+        if animation.is_static_image() {
             render_static(picture, path, size);
             return;
         }
 
-        let media = gtk::MediaFile::for_filename(path);
-        media.set_loop(true);
-        media.play();
-        {
-            let picture = picture.clone();
-            let media_ref = media.clone();
-            let path = path.to_path_buf();
-            media.connect_error_notify(move |_| {
-                if let Some(error) = media_ref.error() {
-                    eprintln!("动图播放失败（{}）：{error}；回退为静态首帧", path.display());
-                    render_static(&picture, &path, size);
+        let frame = animation.iter(Some(SystemTime::now()));
+        let texture = gtk::gdk::Texture::for_pixbuf(&frame.pixbuf());
+        picture.set_paintable(Some(&texture));
+
+        let picture = picture.clone();
+        self.timer = Some(gtk::glib::timeout_add_local(
+            Duration::from_millis(FRAME_INTERVAL_MS),
+            move || {
+                // The iterator borrows animation state internally; keep both alive.
+                let _animation = &animation;
+                if frame.advance(SystemTime::now()) {
+                    let texture = gtk::gdk::Texture::for_pixbuf(&frame.pixbuf());
+                    picture.set_paintable(Some(&texture));
                 }
-            });
-        }
-        picture.set_paintable(Some(&media));
-        self.current = Some(media);
+                gtk::glib::ControlFlow::Continue
+            },
+        ));
     }
 
     /// 尺寸变化：动图不用重新加载（GtkPicture 以 Contain 方式缩放），静图需要按新尺寸重缩放。
     fn resize(&mut self, picture: &gtk::Picture, path: &Path, size: Size) {
         let (width, height) = target_pixels(size);
         picture.set_size_request(width, height);
-        if self.current.is_none() {
+        if self.timer.is_none() {
             render_static(picture, path, size);
         }
     }
 
     fn stop(&mut self) {
-        if let Some(media) = self.current.take() {
-            media.pause();
+        if let Some(timer) = self.timer.take() {
+            timer.remove();
         }
     }
 }
@@ -1476,6 +1569,26 @@ fn apply_position(window: &gtk::Window, x: f64, y: f64) {
         physical.y.round() as i32,
     ) {
         eprintln!("X11: 移动窗口失败（id=0x{window_id:x}）");
+    }
+}
+
+fn apply_always_on_top(window: &gtk::Window, enabled: bool) {
+    if layer_shell_supported() {
+        window.set_layer(if enabled {
+            gtk4_layer_shell::Layer::Top
+        } else {
+            gtk4_layer_shell::Layer::Bottom
+        });
+        return;
+    }
+
+    let Some(window_id) = x11_window_id(window) else {
+        return;
+    };
+    if typingpet_input::x11::set_window_above(window_id, enabled) {
+        println!("X11: 始终置顶={}（id=0x{window_id:x}）", enabled);
+    } else {
+        eprintln!("X11: 设置始终置顶失败（id=0x{window_id:x}）");
     }
 }
 
@@ -1539,7 +1652,11 @@ fn primary_monitor_geometry() -> MonitorGeometry {
     let Some(display) = gtk::gdk::Display::default() else {
         return MonitorGeometry::default();
     };
-    let Some(monitor) = display.monitors().item(0).and_downcast::<gtk::gdk::Monitor>() else {
+    let Some(monitor) = display
+        .monitors()
+        .item(0)
+        .and_downcast::<gtk::gdk::Monitor>()
+    else {
         return MonitorGeometry::default();
     };
     let geometry = monitor.geometry();
@@ -1761,7 +1878,10 @@ mod tests {
 
     #[test]
     fn distinguishes_animated_from_static_images() {
-        assert!(is_animated(&asset("animated.gif")), "GIF 动图应被识别为动图");
+        let built_in_animation = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("resources")
+            .join("pet-idle.gif");
+        assert!(is_animated(&built_in_animation), "GIF 动图应被识别为动图");
         assert!(!is_animated(&asset("static.png")), "PNG 应被识别为静图");
         assert!(!is_animated(Path::new("/nonexistent/missing.gif")));
     }

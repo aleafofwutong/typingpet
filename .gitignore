@@ -4,6 +4,8 @@ dist/
 *.xcuserstate
 *.zip
 target/
+__pycache__/
+*.py[cod]
 
 .vscode/
 

@@ -7,7 +7,7 @@
 use crate::{PointerPosition, ScreenSize};
 use std::cell::RefCell;
 use x11rb::connection::Connection;
-use x11rb::protocol::xproto::{ConfigureWindowAux, ConnectionExt};
+use x11rb::protocol::xproto::{ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask};
 use x11rb::rust_connection::RustConnection;
 
 thread_local! {
@@ -80,10 +80,49 @@ pub fn warp_pointer(x: i16, y: i16) -> Option<()> {
 pub fn move_window(window_id: u32, x: i32, y: i32) -> bool {
     with_connection(|connection, _| {
         let request = ConfigureWindowAux::new().x(x).y(y);
-        connection.configure_window(window_id, &request).is_ok()
-            && connection.flush().is_ok()
+        connection.configure_window(window_id, &request).is_ok() && connection.flush().is_ok()
     })
     .unwrap_or(false)
+}
+
+/// 通过 EWMH `_NET_WM_STATE_ABOVE` 设置或取消窗口置顶。
+///
+/// GTK4 在 X11 下不再提供 `keep_above`，因此把标准请求直接交给窗口管理器。
+pub fn set_window_above(window_id: u32, enabled: bool) -> bool {
+    with_connection(|connection, screen_number| {
+        let root = connection.setup().roots.get(screen_number)?.root;
+        let state_atom = connection
+            .intern_atom(false, b"_NET_WM_STATE")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+        let above_atom = connection
+            .intern_atom(false, b"_NET_WM_STATE_ABOVE")
+            .ok()?
+            .reply()
+            .ok()?
+            .atom;
+        // EWMH: 0=remove, 1=add；source indication 1 表示普通应用请求。
+        let event = ClientMessageEvent::new(
+            32,
+            window_id,
+            state_atom,
+            [u32::from(enabled), above_atom, 0, 1, 0],
+        );
+        connection
+            .send_event(
+                false,
+                root,
+                EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                event,
+            )
+            .ok()?;
+        connection.flush().ok()?;
+        Some(())
+    })
+    .flatten()
+    .is_some()
 }
 
 /// 读回窗口在 root 坐标系里的真实位置与尺寸（用于自检/日志）。

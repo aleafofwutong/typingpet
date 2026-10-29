@@ -129,7 +129,11 @@ impl KeyReactionStore {
         path.is_file().then_some(path)
     }
 
-    pub fn set_rule(&mut self, stroke: KeyStroke, source: &Path) -> std::io::Result<KeyReactionRule> {
+    pub fn set_rule(
+        &mut self,
+        stroke: KeyStroke,
+        source: &Path,
+    ) -> std::io::Result<KeyReactionRule> {
         fs::create_dir_all(&self.directory)?;
         let extension = source
             .extension()
@@ -313,7 +317,9 @@ mod tests {
                 .set_rule(stroke, &source)
                 .expect("set rule should accept supported extension");
             assert!(store.image_path(stroke).is_some());
-            assert!(store.image_path(KeyStroke::new(37, KeyModifiers::NONE)).is_none());
+            assert!(store
+                .image_path(KeyStroke::new(37, KeyModifiers::NONE))
+                .is_none());
         }
 
         let restored = KeyReactionStore::new(&store_dir);
@@ -330,7 +336,9 @@ mod tests {
         let source = root.join("note.txt");
         fs::write(&source, b"hello").expect("write file");
         let mut store = KeyReactionStore::new(root.join("Rules"));
-        assert!(store.set_rule(KeyStroke::new(37, KeyModifiers::NONE), &source).is_err());
+        assert!(store
+            .set_rule(KeyStroke::new(37, KeyModifiers::NONE), &source)
+            .is_err());
         fs::remove_dir_all(&root).ok();
     }
 }

@@ -88,7 +88,9 @@ impl Options {
                 "--avoid-pointer" => options.avoid_pointer = true,
                 "--simulate-pointer" => {
                     let value = args.next().context("--simulate-pointer needs X,Y")?;
-                    let (x, y) = value.split_once(',').context("--simulate-pointer expects X,Y")?;
+                    let (x, y) = value
+                        .split_once(',')
+                        .context("--simulate-pointer expects X,Y")?;
                     options.simulate_pointer = Some((
                         x.trim().parse().context("X must be a number")?,
                         y.trim().parse().context("Y must be a number")?,
@@ -105,17 +107,16 @@ impl Options {
                 }
                 "--position" => {
                     let value = args.next().context("--position needs X,Y")?;
-                    let (x, y) = value
-                        .split_once(',')
-                        .context("--position expects X,Y")?;
+                    let (x, y) = value.split_once(',').context("--position expects X,Y")?;
                     options.position = Some((
                         x.trim().parse().context("--position X must be a number")?,
                         y.trim().parse().context("--position Y must be a number")?,
                     ));
                 }
                 "--dump-png" => {
-                    options.dump_png =
-                        Some(PathBuf::from(args.next().context("--dump-png needs a path")?));
+                    options.dump_png = Some(PathBuf::from(
+                        args.next().context("--dump-png needs a path")?,
+                    ));
                 }
                 "--print-events" => options.print_events = true,
                 "--help" | "-h" => {
@@ -124,10 +125,12 @@ impl Options {
                 }
                 "--scale" => {
                     let value = args.next().context("--scale needs a value")?;
-                    options.scale_override = Some(value.parse().context("--scale must be a number")?);
+                    options.scale_override =
+                        Some(value.parse().context("--scale must be a number")?);
                 }
                 "--config" => {
-                    options.config_path = PathBuf::from(args.next().context("--config needs a path")?);
+                    options.config_path =
+                        PathBuf::from(args.next().context("--config needs a path")?);
                 }
                 "--data" => {
                     options.data_directory =
@@ -230,14 +233,17 @@ impl Runtime {
 
         let state = PetState::new(
             library.idle_url(),
+            library.typing_url(),
             library.reaction_urls(),
+            library.surprise_url(),
             settings.shake_amplitude(),
         );
 
         let input = match options.mock_keystrokes {
-            Some(count) => typingpet_input::open_mock(mock_script(count), Duration::from_millis(120)),
-            None => typingpet_input::open_evdev()
-                .context("global keyboard capture unavailable")?,
+            Some(count) => {
+                typingpet_input::open_mock(mock_script(count), Duration::from_millis(120))
+            }
+            None => typingpet_input::open_evdev().context("global keyboard capture unavailable")?,
         };
 
         Ok(Self {
@@ -334,15 +340,16 @@ fn run_headless(options: Options) -> Result<()> {
                 println!("  key: {}", event.stroke.display_name());
             }
             idle_printed = false;
-            let actions = runtime
-                .state
-                .on_key(Some(event.stroke), &runtime.rules, &mut rng, runtime.now());
+            let actions =
+                runtime
+                    .state
+                    .on_key(Some(event.stroke), &runtime.rules, &mut rng, runtime.now());
             for action in actions {
                 print_action(&action, "key");
             }
         }
 
-        let actions = runtime.state.tick(runtime.now());
+        let actions = runtime.state.tick(runtime.now(), &mut rng);
         for action in actions {
             print_action(&action, "idle-timeout");
             idle_printed = true;
@@ -363,7 +370,10 @@ fn run_headless(options: Options) -> Result<()> {
         Some(pointer) => println!("pointer: x={} y={} (X11)", pointer.x, pointer.y),
         None => println!("pointer: unavailable (Wayland: 只能做局部躲避)"),
     }
-    println!("done: {} action(s) exercised", runtime.state.reaction_count());
+    println!(
+        "done: {} action(s) exercised",
+        runtime.state.reaction_count()
+    );
     Ok(())
 }
 
